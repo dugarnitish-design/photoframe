@@ -396,45 +396,36 @@
   }
 
   // ---------- Album (Google Photos) ----------
-  // Public shared-album pages embed photo URLs (lh3.googleusercontent.com/pw/...).
-  // Browsers can't fetch that page directly (CORS), so we route it through a
-  // free read-only proxy and pull the image URLs out of the returned HTML.
+  // A public shared-album page embeds its photo URLs (lh3.googleusercontent.com/pw/…)
+  // in the HTML. Browsers can't fetch that page directly (CORS), so we route it
+  // through a CORS proxy and pull the image URLs out. Two wrinkles, both handled:
+  //   1. photos.app.goo.gl/… is a "durable deep link" that resolves to the real
+  //      photos.google.com/share/… URL only via JS — but adding ?d=1 reveals it
+  //      in the page source, so we read it from there first.
+  //   2. The real album page is often >1MB; some free proxies cap responses, so
+  //      we try a large-capable proxy (corsfix) first for the album fetch.
   let albumRefreshTimer = null;
   let lastAlbumNote = ''; // diagnostic, surfaced in the settings panel
 
-  // Pull photo URLs out of a shared-album page's HTML.
-  // Album photos appear at the start of a JS array: ["https://lh3...pw/ID",w,h]
-  // The leading ["  filters out avatars and other stray /pw/ images.
-  function extractPhotos(html) {
-    const out = new Set();
-    const strict = /\["(https:\/\/lh3\.googleusercontent\.com\/pw\/[A-Za-z0-9_\-]+)/g;
-    let m;
-    while ((m = strict.exec(html)) !== null) out.add(m[1]);
-    if (out.size === 0) {
-      // Looser fallback: any /pw/ URL on the page.
-      const loose = html.match(/https:\/\/lh3\.googleusercontent\.com\/pw\/[A-Za-z0-9_\-]+/g) || [];
-      loose.forEach(u => out.add(u));
-    }
-    return [...out].map(u => `${u}=w1920`); // sized, hotlinkable
-  }
+  // Proxy builders. corsfix has no small response cap (needed for big albums);
+  // corsproxy.io is fast and reliable for small pages but caps free responses at 1MB.
+  const PROXY_CORSFIX   = u => `https://proxy.corsfix.com/?${u}`;
+  const PROXY_CORSPROXY = u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`;
+  const PROXY_ALLORIGINS = u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`;
 
-  // Fetch one URL through a CORS proxy with a hard timeout so a dead/slow
-  // proxy can never freeze the frame. corsproxy.io is tried first (reliable);
-  // allorigins is a fallback in case corsproxy is unavailable.
-  async function fetchViaProxy(url, ms) {
-    const proxies = [
-      u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
-      u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`
-    ];
-    for (const make of proxies) {
+  // Try each proxy in turn. `validate` rejects responses that came back OK but
+  // aren't the page we wanted (e.g. a proxy's own rate-limit/error page), so a
+  // bad response is treated as a miss and the next proxy/attempt is tried.
+  async function proxyGet(url, builders, ms, validate) {
+    for (const make of builders) {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), ms);
       try {
         const res = await fetch(make(url), { cache: 'no-store', signal: ctrl.signal });
         clearTimeout(timer);
-        if (!res.ok) continue;
+        if (!res.ok) continue; // e.g. corsproxy 413 on an album over its size cap
         const text = await res.text();
-        if (text && text.length > 500) return text;
+        if (text && text.length > 500 && (!validate || validate(text))) return text;
       } catch (e) {
         clearTimeout(timer);
       }
@@ -442,10 +433,40 @@
     return null;
   }
 
+  // Turn whatever the user pasted into the real photos.google.com/share/… URL.
+  async function resolveAlbumUrl(link) {
+    if (/photos\.google\.com\/share\//.test(link)) return link; // already long form
+    if (!/goo\.gl/.test(link)) return link;                     // unknown host, try as-is
+    const html = await proxyGet(link.split('?')[0] + '?d=1', [PROXY_CORSPROXY, PROXY_CORSFIX], 9000,
+      t => /photos\.google\.com/.test(t.replace(/\\/g, '')));
+    if (!html) return null;
+    const m = html.match(/https:\\?\/\\?\/photos\.google\.com\\?\/share[^"'<>\\ ]+/);
+    if (!m) return null;
+    return m[0].replace(/\\\//g, '/').replace(/\\u003d/gi, '=').replace(/\\u0026/gi, '&');
+  }
+
+  // Pull photo URLs out of a shared-album page's HTML.
+  // Album photos use /pw/ ; the owner avatar uses /a/ and is naturally excluded.
+  function extractPhotos(html) {
+    const matches = html.match(/https:\/\/lh3\.googleusercontent\.com\/pw\/[A-Za-z0-9_\-]+/g) || [];
+    return [...new Set(matches)].map(u => `${u}=w1920`); // sized, hotlinkable
+  }
+
   // Returns { urls, reached } so callers can tell "couldn't reach the album"
   // apart from "reached it but found no photos".
   async function fetchAlbumPhotos(albumUrl) {
-    const html = await fetchViaProxy(albumUrl, 9000);
+    const real = await resolveAlbumUrl(albumUrl.trim());
+    if (!real) return { urls: [], reached: false };
+    // Album page can be large → corsfix first, corsproxy as fallback for small albums.
+    // Free proxies briefly rate-limit, so retry a couple of times with a short gap.
+    // Only accept a response that actually contains album photos — this rejects
+    // a proxy's rate-limit/error page (which would otherwise look like an empty album).
+    const looksLikeAlbum = t => /lh3\.googleusercontent\.com\/pw\//.test(t);
+    let html = null;
+    for (let attempt = 0; attempt < 3 && html === null; attempt++) {
+      if (attempt) await new Promise(r => setTimeout(r, 3000));
+      html = await proxyGet(real, [PROXY_CORSFIX, PROXY_CORSPROXY, PROXY_ALLORIGINS], 15000, looksLikeAlbum);
+    }
     if (html === null) return { urls: [], reached: false };
     return { urls: extractPhotos(html), reached: true };
   }
@@ -509,6 +530,9 @@
     if (photos.length === 0) {
       if (!settings.album.trim()) {
         setMessage('No photos yet', 'Tap the gear icon in the top-right corner to add a Google Photos album or photo links.');
+      } else {
+        // Album set but nothing loaded (proxy busy) — retry soon rather than waiting the full refresh.
+        albumRefreshTimer = setInterval(refreshAlbum, 60 * 1000);
       }
       dotsWrap.innerHTML = '';
       return;
