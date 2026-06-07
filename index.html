@@ -400,24 +400,54 @@
   // Browsers can't fetch that page directly (CORS), so we route it through a
   // free read-only proxy and pull the image URLs out of the returned HTML.
   let albumRefreshTimer = null;
+  let lastAlbumNote = ''; // diagnostic, surfaced in the settings panel
 
-  async function fetchAlbumPhotos(albumUrl) {
+  // Pull photo URLs out of a shared-album page's HTML.
+  // Album photos appear at the start of a JS array: ["https://lh3...pw/ID",w,h]
+  // The leading ["  filters out avatars and other stray /pw/ images.
+  function extractPhotos(html) {
+    const out = new Set();
+    const strict = /\["(https:\/\/lh3\.googleusercontent\.com\/pw\/[A-Za-z0-9_\-]+)/g;
+    let m;
+    while ((m = strict.exec(html)) !== null) out.add(m[1]);
+    if (out.size === 0) {
+      // Looser fallback: any /pw/ URL on the page.
+      const loose = html.match(/https:\/\/lh3\.googleusercontent\.com\/pw\/[A-Za-z0-9_\-]+/g) || [];
+      loose.forEach(u => out.add(u));
+    }
+    return [...out].map(u => `${u}=w1920`); // sized, hotlinkable
+  }
+
+  // Fetch one URL through a CORS proxy with a hard timeout so a dead/slow
+  // proxy can never freeze the frame. corsproxy.io is tried first (reliable);
+  // allorigins is a fallback in case corsproxy is unavailable.
+  async function fetchViaProxy(url, ms) {
     const proxies = [
-      u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-      u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`
+      u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+      u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`
     ];
     for (const make of proxies) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), ms);
       try {
-        const res = await fetch(make(albumUrl), { cache: 'no-store' });
+        const res = await fetch(make(url), { cache: 'no-store', signal: ctrl.signal });
+        clearTimeout(timer);
         if (!res.ok) continue;
-        const html = await res.text();
-        // Photo content lives under /pw/ ; avatars/icons under /a/ are skipped.
-        const matches = html.match(/https:\/\/lh3\.googleusercontent\.com\/pw\/[A-Za-z0-9_\-]+/g) || [];
-        const unique = [...new Set(matches)];
-        if (unique.length) return unique.map(u => `${u}=w1920`); // sized, hotlinkable
-      } catch (e) { /* try next proxy */ }
+        const text = await res.text();
+        if (text && text.length > 500) return text;
+      } catch (e) {
+        clearTimeout(timer);
+      }
     }
-    return null; // signals failure (vs. an album that genuinely has 0 photos)
+    return null;
+  }
+
+  // Returns { urls, reached } so callers can tell "couldn't reach the album"
+  // apart from "reached it but found no photos".
+  async function fetchAlbumPhotos(albumUrl) {
+    const html = await fetchViaProxy(albumUrl, 9000);
+    if (html === null) return { urls: [], reached: false };
+    return { urls: extractPhotos(html), reached: true };
   }
 
   function setMessage(big, small) {
@@ -426,20 +456,36 @@
     emptyMsg.classList.add('show');
   }
 
+  // Reflect the last album outcome in the settings panel hint.
+  function setAlbumNote(text, cls) {
+    lastAlbumNote = text;
+    const el = document.getElementById('albumStatus');
+    if (!el) return;
+    el.textContent = text;
+    el.className = 'hint' + (cls ? ' ' + cls : '');
+  }
+
   // Build the full ordered, de-duplicated photo list from all sources.
   async function gatherPhotos() {
     const direct = settings.urls.map(u => u.trim()).filter(Boolean);
     let album = [];
     if (settings.album.trim()) {
-      const fetched = await fetchAlbumPhotos(settings.album.trim());
-      if (fetched === null) {
-        // Couldn't read the album — fall back to direct links if any.
+      const { urls, reached } = await fetchAlbumPhotos(settings.album.trim());
+      if (!reached) {
+        setAlbumNote('Couldn’t reach the album (the photo service may be busy). It retries automatically.', 'err');
         if (!direct.length) {
-          setMessage('Couldn’t load that album',
-            'Check the link is a Google Photos “shared album” set to anyone-with-the-link, or add individual photo links instead.');
+          setMessage('Couldn’t reach the album',
+            'The helper service may be busy — it retries on its own. Or add individual photo links below as a backup.');
+        }
+      } else if (urls.length === 0) {
+        setAlbumNote('Reached the album, but found no photos. Make sure the link is a shared album (not a single photo) set to “anyone with the link”.', 'err');
+        if (!direct.length) {
+          setMessage('No photos found in that album',
+            'Make sure it’s a Google Photos shared-album link set to “anyone with the link” — not a single photo or a private album.');
         }
       } else {
-        album = fetched;
+        album = urls;
+        setAlbumNote(`Loaded ${urls.length} photo${urls.length === 1 ? '' : 's'} from the album. ✓`, 'ok');
       }
     }
     return [...new Set([...direct, ...album])];
@@ -633,6 +679,10 @@
   function openPanel() {
     renderUrlRows();
     document.getElementById('albumUrl').value = settings.album;
+    if (lastAlbumNote) {
+      const el = document.getElementById('albumStatus');
+      el.textContent = lastAlbumNote;
+    }
     document.getElementById('speed').value = settings.speed;
     document.getElementById('speedLabel').textContent = settings.speed;
     panel.classList.add('open');
