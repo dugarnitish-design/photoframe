@@ -195,6 +195,10 @@
   }
   button.addRow:hover { border-color: rgba(255,255,255,0.5); color: #fff; }
 
+  .hint { font-size: 0.8rem; line-height: 1.5; color: rgba(255,255,255,0.45); margin-top: 8px; }
+  .hint.err { color: #ff9b9b; }
+  .hint.ok { color: #7ddf7d; }
+
   .speedVal { color: #fff; font-weight: 600; }
   input[type=range] { width: 100%; accent-color: #fff; margin-top: 4px; }
 
@@ -285,7 +289,15 @@
   <div id="panelBody">
 
     <div class="section">
-      <label class="head">Photo links</label>
+      <label class="head">Google Photos shared album</label>
+      <div class="urlRow">
+        <input type="url" id="albumUrl" placeholder="https://photos.app.goo.gl/..." />
+      </div>
+      <div id="albumStatus" class="hint">Paste a “shared album” link (set to <em>anyone with the link</em>). Every photo in it will play automatically.</div>
+    </div>
+
+    <div class="section">
+      <label class="head">Individual photo links <span style="text-transform:none;letter-spacing:0;font-weight:400;color:rgba(255,255,255,0.35)">— optional</span></label>
       <div id="urlList"></div>
       <button class="addRow" id="addRowBtn">+ Add another photo</button>
     </div>
@@ -302,15 +314,14 @@
 
     <div class="section">
       <details class="howto">
-        <summary>How to get image links</summary>
+        <summary>How to add photos</summary>
         <div class="htbody">
-          <p>This frame needs <strong>direct image links</strong> — a URL that ends in <code>.jpg</code>, <code>.png</code>, or <code>.webp</code> and opens just the photo (nothing else) in a browser.</p>
+          <h4>Easiest: a Google Photos shared album</h4>
+          In the Google Photos app, open (or create) an album → tap <strong>Share</strong> → <strong>Create link</strong>. Copy that link and paste it into the “Google Photos shared album” box above. The frame plays <em>every</em> photo in the album, and shows new ones you add later. The album must be shared as <em>anyone with the link</em>.<br />
+          <span style="color:rgba(255,255,255,0.45)">Note: this reads the public album page through a free helper service. It works in most cases; if it ever stops, use the direct links below as a backup.</span>
 
-          <h4>Easiest: imgbb.com (works for any photo)</h4>
-          Go to <a href="https://imgbb.com" target="_blank" rel="noopener">imgbb.com</a>, upload your photo, then copy the <em>“Direct link”</em>. This is the most reliable method and works for photos from Facebook, Instagram, or your phone.
-
-          <h4>Google Photos</h4>
-          Google Photos share links are <em>not</em> direct image links and won't load here. Download the photo, then re-upload it to <a href="https://imgbb.com" target="_blank" rel="noopener">imgbb.com</a> and use the direct link.
+          <h4>Most reliable: imgbb.com (any single photo)</h4>
+          Go to <a href="https://imgbb.com" target="_blank" rel="noopener">imgbb.com</a>, upload your photo, then copy the <em>“Direct link”</em> into an “Individual photo links” row. Works for photos from anywhere — Facebook, Instagram, or your phone.
 
           <h4>Facebook &amp; Instagram</h4>
           These don't give stable direct links. Save the photo to your device, then upload to <a href="https://imgbb.com" target="_blank" rel="noopener">imgbb.com</a> and copy the direct link.
@@ -341,8 +352,12 @@
 
   const DEFAULTS = {
     urls: [],
+    album: '',
     speed: 10
   };
+
+  // How often to re-check the Google Photos album for new pictures (ms)
+  const ALBUM_REFRESH_MS = 60 * 60 * 1000; // 1 hour
 
   // ---------- State ----------
   let settings = loadSettings();
@@ -369,6 +384,7 @@
       const parsed = JSON.parse(raw);
       return {
         urls: Array.isArray(parsed.urls) ? parsed.urls : [],
+        album: typeof parsed.album === 'string' ? parsed.album : '',
         speed: parsed.speed || DEFAULTS.speed
       };
     } catch (e) {
@@ -379,21 +395,81 @@
     localStorage.setItem(STORE_KEY, JSON.stringify(settings));
   }
 
+  // ---------- Album (Google Photos) ----------
+  // Public shared-album pages embed photo URLs (lh3.googleusercontent.com/pw/...).
+  // Browsers can't fetch that page directly (CORS), so we route it through a
+  // free read-only proxy and pull the image URLs out of the returned HTML.
+  let albumRefreshTimer = null;
+
+  async function fetchAlbumPhotos(albumUrl) {
+    const proxies = [
+      u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+      u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`
+    ];
+    for (const make of proxies) {
+      try {
+        const res = await fetch(make(albumUrl), { cache: 'no-store' });
+        if (!res.ok) continue;
+        const html = await res.text();
+        // Photo content lives under /pw/ ; avatars/icons under /a/ are skipped.
+        const matches = html.match(/https:\/\/lh3\.googleusercontent\.com\/pw\/[A-Za-z0-9_\-]+/g) || [];
+        const unique = [...new Set(matches)];
+        if (unique.length) return unique.map(u => `${u}=w1920`); // sized, hotlinkable
+      } catch (e) { /* try next proxy */ }
+    }
+    return null; // signals failure (vs. an album that genuinely has 0 photos)
+  }
+
+  function setMessage(big, small) {
+    emptyMsg.querySelector('.big').textContent = big;
+    emptyMsg.querySelector('.small').textContent = small;
+    emptyMsg.classList.add('show');
+  }
+
+  // Build the full ordered, de-duplicated photo list from all sources.
+  async function gatherPhotos() {
+    const direct = settings.urls.map(u => u.trim()).filter(Boolean);
+    let album = [];
+    if (settings.album.trim()) {
+      const fetched = await fetchAlbumPhotos(settings.album.trim());
+      if (fetched === null) {
+        // Couldn't read the album — fall back to direct links if any.
+        if (!direct.length) {
+          setMessage('Couldn’t load that album',
+            'Check the link is a Google Photos “shared album” set to anyone-with-the-link, or add individual photo links instead.');
+        }
+      } else {
+        album = fetched;
+      }
+    }
+    return [...new Set([...direct, ...album])];
+  }
+
   // ---------- Slideshow ----------
-  function buildSlides() {
+  async function buildSlides() {
     clearInterval(slideTimer);
+    clearInterval(albumRefreshTimer);
+
+    if (settings.album.trim() && photos.length === 0) {
+      setMessage('Loading photos…', 'Fetching your Google Photos album.');
+    }
+
+    const list = await gatherPhotos();
+
     stage.innerHTML = '';
     slideEls = [];
-    photos = settings.urls.map(u => u.trim()).filter(Boolean);
+    photos = list;
 
     if (photos.length === 0) {
-      emptyMsg.classList.add('show');
+      if (!settings.album.trim()) {
+        setMessage('No photos yet', 'Tap the gear icon in the top-right corner to add a Google Photos album or photo links.');
+      }
       dotsWrap.innerHTML = '';
       return;
     }
     emptyMsg.classList.remove('show');
 
-    photos.forEach((url, i) => {
+    photos.forEach((url) => {
       const div = document.createElement('div');
       div.className = 'slide';
       div.style.backgroundImage = `url("${url.replace(/"/g, '%22')}")`;
@@ -408,6 +484,20 @@
     current = 0;
     show(0);
     startTimer();
+
+    // Quietly re-check the album for new photos on a timer.
+    if (settings.album.trim()) {
+      albumRefreshTimer = setInterval(refreshAlbum, ALBUM_REFRESH_MS);
+    }
+  }
+
+  // Re-fetch the album; only rebuild if the photo set actually changed,
+  // so the current slide isn't disturbed unnecessarily.
+  async function refreshAlbum() {
+    const list = await gatherPhotos();
+    if (list.length && list.join('|') !== photos.join('|')) {
+      buildSlides();
+    }
   }
 
   function buildDots() {
@@ -542,6 +632,7 @@
 
   function openPanel() {
     renderUrlRows();
+    document.getElementById('albumUrl').value = settings.album;
     document.getElementById('speed').value = settings.speed;
     document.getElementById('speedLabel').textContent = settings.speed;
     panel.classList.add('open');
@@ -561,6 +652,7 @@
 
   document.getElementById('saveBtn').addEventListener('click', () => {
     settings.urls = collectUrls();
+    settings.album = document.getElementById('albumUrl').value.trim();
     settings.speed = parseInt(document.getElementById('speed').value, 10) || DEFAULTS.speed;
     saveSettings();
     const note = document.getElementById('savedNote');
