@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Photo Frame</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --fade: 1.6s;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    font-family: 'DM Sans', system-ui, sans-serif;
+    color: #fff;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* ---------- Slideshow ---------- */
+  #stage { position: fixed; inset: 0; background: var(--bg); }
+  .slide {
+    position: absolute; inset: 0;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    opacity: 0;
+    transition: opacity var(--fade) ease-in-out;
+    will-change: opacity;
+  }
+  .slide.active { opacity: 1; }
+
+  #empty {
+    position: fixed; inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center; padding: 40px;
+    color: rgba(255,255,255,0.6);
+  }
+  #empty.show { display: flex; }
+  #empty .big { font-family: 'DM Serif Display', serif; font-size: 2.4rem; margin-bottom: 12px; color: rgba(255,255,255,0.85); }
+  #empty .small { font-size: 1rem; max-width: 460px; line-height: 1.6; }
+
+  /* ---------- Bottom gradient ---------- */
+  #bottomShade {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    height: 38vh;
+    background: linear-gradient(to top, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.45) 35%, rgba(0,0,0,0) 100%);
+    pointer-events: none;
+  }
+  #topShade {
+    position: fixed; left: 0; right: 0; top: 0;
+    height: 20vh;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0) 100%);
+    pointer-events: none;
+  }
+
+  /* ---------- Overlays ---------- */
+  .overlay { position: fixed; z-index: 5; }
+
+  #familyName {
+    top: 22px; left: 50%; transform: translateX(-50%);
+    font-family: 'DM Serif Display', serif;
+    font-style: italic;
+    font-size: 1.5rem;
+    color: rgba(255,255,255,0.6);
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+
+  #weather {
+    top: 24px; left: 32px;
+    display: flex; align-items: center; gap: 12px;
+    font-weight: 500;
+  }
+  #weather .icon { font-size: 2.2rem; line-height: 1; }
+  #weather .temp { font-size: 1.9rem; font-weight: 500; }
+  #weather.hidden { display: none; }
+
+  #clock {
+    bottom: 30px; left: 40px;
+    font-family: 'DM Serif Display', serif;
+    font-size: 6.5rem;
+    line-height: 0.95;
+    text-shadow: 0 2px 18px rgba(0,0,0,0.5);
+  }
+
+  #dateBox {
+    bottom: 38px; right: 44px;
+    text-align: right;
+    text-shadow: 0 2px 18px rgba(0,0,0,0.5);
+  }
+  #dayName {
+    font-family: 'DM Serif Display', serif;
+    font-size: 2.6rem;
+    line-height: 1.05;
+  }
+  #fullDate {
+    font-size: 1.2rem;
+    color: rgba(255,255,255,0.85);
+    margin-top: 4px;
+    letter-spacing: 0.3px;
+  }
+
+  /* ---------- Progress dots ---------- */
+  #dots {
+    bottom: 30px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 9px; align-items: center;
+  }
+  #dots .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: rgba(255,255,255,0.35);
+    transition: background 0.4s, transform 0.4s;
+  }
+  #dots .dot.active { background: #fff; transform: scale(1.4); }
+
+  /* ---------- Gear button ---------- */
+  #gear {
+    top: 20px; right: 20px;
+    width: 46px; height: 46px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 50%;
+    cursor: pointer;
+    color: rgba(255,255,255,0.85);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    transition: background 0.25s, opacity 1s;
+    z-index: 6;
+  }
+  #gear:hover { background: rgba(0,0,0,0.6); }
+  #gear svg { width: 24px; height: 24px; }
+
+  /* ---------- Settings panel ---------- */
+  #panel {
+    position: fixed; top: 0; right: 0; bottom: 0;
+    width: 440px; max-width: 92vw;
+    background: #111;
+    border-left: 1px solid rgba(255,255,255,0.08);
+    transform: translateX(105%);
+    transition: transform 0.35s cubic-bezier(.4,0,.2,1);
+    z-index: 20;
+    display: flex; flex-direction: column;
+    box-shadow: -20px 0 60px rgba(0,0,0,0.5);
+  }
+  #panel.open { transform: translateX(0); }
+  #panelHead {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 22px 24px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  #panelHead h2 { font-family: 'DM Serif Display', serif; font-weight: 400; font-size: 1.6rem; }
+  #closeBtn {
+    background: none; border: none; color: rgba(255,255,255,0.7);
+    font-size: 1.8rem; cursor: pointer; line-height: 1; padding: 0 4px;
+  }
+  #panelBody { overflow-y: auto; padding: 22px 24px 40px; flex: 1; }
+
+  .section { margin-bottom: 30px; }
+  .section > label.head {
+    display: block; font-size: 0.78rem; text-transform: uppercase;
+    letter-spacing: 1.2px; color: rgba(255,255,255,0.45);
+    margin-bottom: 12px; font-weight: 600;
+  }
+
+  .urlRow { display: flex; gap: 8px; margin-bottom: 8px; }
+  .urlRow input {
+    flex: 1; min-width: 0;
+    background: #1c1c1c; border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px; padding: 11px 12px; color: #fff; font-size: 0.9rem;
+    font-family: 'DM Sans', sans-serif;
+  }
+  .urlRow input:focus { outline: none; border-color: rgba(255,255,255,0.4); }
+  .urlRow button.remove {
+    flex: 0 0 auto; width: 42px;
+    background: #1c1c1c; border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px; color: rgba(255,255,255,0.6);
+    font-size: 1.3rem; cursor: pointer;
+  }
+  .urlRow button.remove:hover { background: #2a1414; color: #ff8585; border-color: #5a2020; }
+
+  button.addRow {
+    width: 100%; margin-top: 6px;
+    background: transparent; border: 1px dashed rgba(255,255,255,0.25);
+    border-radius: 8px; padding: 11px; color: rgba(255,255,255,0.7);
+    font-size: 0.9rem; cursor: pointer; font-family: 'DM Sans', sans-serif;
+  }
+  button.addRow:hover { border-color: rgba(255,255,255,0.5); color: #fff; }
+
+  .speedVal { color: #fff; font-weight: 600; }
+  input[type=range] { width: 100%; accent-color: #fff; margin-top: 4px; }
+
+  #saveBtn {
+    width: 100%; background: #fff; color: #0a0a0a;
+    border: none; border-radius: 10px; padding: 14px;
+    font-size: 1rem; font-weight: 600; cursor: pointer;
+    font-family: 'DM Sans', sans-serif; margin-top: 4px;
+  }
+  #saveBtn:active { transform: scale(0.99); }
+  #savedNote {
+    text-align: center; font-size: 0.85rem; color: #7ddf7d;
+    margin-top: 10px; height: 1em; opacity: 0; transition: opacity 0.3s;
+  }
+  #savedNote.show { opacity: 1; }
+
+  /* How-to */
+  details.howto {
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
+    padding: 4px 14px; background: #161616;
+  }
+  details.howto summary {
+    cursor: pointer; padding: 12px 0; font-weight: 600; font-size: 0.92rem;
+    list-style: none; color: rgba(255,255,255,0.85);
+  }
+  details.howto summary::-webkit-details-marker { display: none; }
+  details.howto summary::before { content: "▸ "; color: rgba(255,255,255,0.5); }
+  details.howto[open] summary::before { content: "▾ "; }
+  details.howto .htbody { padding: 6px 0 16px; font-size: 0.86rem; line-height: 1.65; color: rgba(255,255,255,0.7); }
+  details.howto .htbody h4 { color: #fff; font-size: 0.9rem; margin: 14px 0 4px; font-weight: 600; }
+  details.howto .htbody h4:first-child { margin-top: 4px; }
+  details.howto .htbody a { color: #8ab4ff; }
+  details.howto .htbody code { background: #000; padding: 1px 6px; border-radius: 4px; font-size: 0.8rem; }
+
+  @media (max-width: 700px) {
+    #clock { font-size: 4.2rem; bottom: 24px; left: 24px; }
+    #dayName { font-size: 1.8rem; }
+    #fullDate { font-size: 1rem; }
+    #dateBox { right: 24px; bottom: 30px; }
+    #familyName { font-size: 1.2rem; }
+    #weather .temp { font-size: 1.5rem; }
+    #weather .icon { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div id="stage"></div>
+<div id="topShade"></div>
+<div id="bottomShade"></div>
+
+<div id="empty">
+  <div class="big">No photos yet</div>
+  <div class="small">Tap the gear icon in the top-right corner to add photo links and start your slideshow.</div>
+</div>
+
+<!-- Overlays -->
+<div id="familyName" class="overlay"></div>
+
+<div id="weather" class="overlay hidden">
+  <span class="icon">⏳</span>
+  <span class="temp">--°</span>
+</div>
+
+<div id="clock" class="overlay">--:--</div>
+
+<div id="dateBox" class="overlay">
+  <div id="dayName">—</div>
+  <div id="fullDate">—</div>
+</div>
+
+<div id="dots" class="overlay"></div>
+
+<!-- Gear -->
+<div id="gear" title="Settings">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="3"></circle>
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+  </svg>
+</div>
+
+<!-- Settings panel -->
+<div id="panel">
+  <div id="panelHead">
+    <h2>Settings</h2>
+    <button id="closeBtn" title="Close">×</button>
+  </div>
+  <div id="panelBody">
+
+    <div class="section">
+      <label class="head">Photo links</label>
+      <div id="urlList"></div>
+      <button class="addRow" id="addRowBtn">+ Add another photo</button>
+    </div>
+
+    <div class="section">
+      <label class="head">Slide speed — <span class="speedVal" id="speedLabel">10</span> seconds</label>
+      <input type="range" id="speed" min="5" max="60" step="1" value="10" />
+    </div>
+
+    <div class="section">
+      <button id="saveBtn">Save</button>
+      <div id="savedNote">Saved ✓</div>
+    </div>
+
+    <div class="section">
+      <details class="howto">
+        <summary>How to get image links</summary>
+        <div class="htbody">
+          <p>This frame needs <strong>direct image links</strong> — a URL that ends in <code>.jpg</code>, <code>.png</code>, or <code>.webp</code> and opens just the photo (nothing else) in a browser.</p>
+
+          <h4>Easiest: imgbb.com (works for any photo)</h4>
+          Go to <a href="https://imgbb.com" target="_blank" rel="noopener">imgbb.com</a>, upload your photo, then copy the <em>“Direct link”</em>. This is the most reliable method and works for photos from Facebook, Instagram, or your phone.
+
+          <h4>Google Photos</h4>
+          Google Photos share links are <em>not</em> direct image links and won't load here. Download the photo, then re-upload it to <a href="https://imgbb.com" target="_blank" rel="noopener">imgbb.com</a> and use the direct link.
+
+          <h4>Facebook &amp; Instagram</h4>
+          These don't give stable direct links. Save the photo to your device, then upload to <a href="https://imgbb.com" target="_blank" rel="noopener">imgbb.com</a> and copy the direct link.
+
+          <h4>Dropbox</h4>
+          Get a share link (ends in <code>?dl=0</code>) and change the ending to <code>?raw=1</code>. Example:<br />
+          <code>...photo.jpg?raw=1</code>
+
+          <h4>Google Drive</h4>
+          Share the file as “Anyone with the link”, copy the file ID from the share URL, then use:<br />
+          <code>https://drive.google.com/uc?export=view&amp;id=FILE_ID</code>
+
+          <p style="margin-top:14px">Tip: paste a link into your browser first. If you see only the photo, it'll work here.</p>
+        </div>
+      </details>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // ====================================================================
+  //  EDIT THIS to change the label at the top of the frame:
+  const FAMILY_NAME = "Our Family";
+  // ====================================================================
+
+  const STORE_KEY = 'photoframe.settings.v1';
+
+  const DEFAULTS = {
+    urls: [],
+    speed: 10
+  };
+
+  // ---------- State ----------
+  let settings = loadSettings();
+  let photos = [];
+  let current = 0;
+  let slideTimer = null;
+  let slideEls = [];
+
+  // ---------- DOM ----------
+  const stage = document.getElementById('stage');
+  const emptyMsg = document.getElementById('empty');
+  const dotsWrap = document.getElementById('dots');
+  const panel = document.getElementById('panel');
+  const gear = document.getElementById('gear');
+  const urlList = document.getElementById('urlList');
+
+  document.getElementById('familyName').textContent = FAMILY_NAME;
+
+  // ---------- Settings storage ----------
+  function loadSettings() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (!raw) return { ...DEFAULTS };
+      const parsed = JSON.parse(raw);
+      return {
+        urls: Array.isArray(parsed.urls) ? parsed.urls : [],
+        speed: parsed.speed || DEFAULTS.speed
+      };
+    } catch (e) {
+      return { ...DEFAULTS };
+    }
+  }
+  function saveSettings() {
+    localStorage.setItem(STORE_KEY, JSON.stringify(settings));
+  }
+
+  // ---------- Slideshow ----------
+  function buildSlides() {
+    clearInterval(slideTimer);
+    stage.innerHTML = '';
+    slideEls = [];
+    photos = settings.urls.map(u => u.trim()).filter(Boolean);
+
+    if (photos.length === 0) {
+      emptyMsg.classList.add('show');
+      dotsWrap.innerHTML = '';
+      return;
+    }
+    emptyMsg.classList.remove('show');
+
+    photos.forEach((url, i) => {
+      const div = document.createElement('div');
+      div.className = 'slide';
+      div.style.backgroundImage = `url("${url.replace(/"/g, '%22')}")`;
+      stage.appendChild(div);
+      slideEls.push(div);
+    });
+
+    // Preload to avoid flashes
+    photos.forEach(url => { const im = new Image(); im.src = url; });
+
+    buildDots();
+    current = 0;
+    show(0);
+    startTimer();
+  }
+
+  function buildDots() {
+    dotsWrap.innerHTML = '';
+    if (photos.length <= 1) return;
+    photos.forEach((_, i) => {
+      const d = document.createElement('div');
+      d.className = 'dot' + (i === 0 ? ' active' : '');
+      dotsWrap.appendChild(d);
+    });
+  }
+
+  function show(idx) {
+    slideEls.forEach((el, i) => el.classList.toggle('active', i === idx));
+    const dots = dotsWrap.children;
+    for (let i = 0; i < dots.length; i++) {
+      dots[i].classList.toggle('active', i === idx);
+    }
+    current = idx;
+  }
+
+  function next() {
+    if (photos.length === 0) return;
+    show((current + 1) % photos.length);
+  }
+
+  function startTimer() {
+    clearInterval(slideTimer);
+    if (photos.length <= 1) return;
+    slideTimer = setInterval(next, settings.speed * 1000);
+  }
+
+  function manualNext() {
+    if (photos.length === 0) return;
+    next();
+    startTimer(); // reset interval after manual skip
+  }
+
+  // ---------- Clock & date ----------
+  function updateClock() {
+    const now = new Date();
+    let h = now.getHours();
+    const m = now.getMinutes();
+    const hh = String(h).padStart(2, '0');
+    const mm = String(m).padStart(2, '0');
+    document.getElementById('clock').textContent = `${hh}:${mm}`;
+
+    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    document.getElementById('dayName').textContent = days[now.getDay()];
+    document.getElementById('fullDate').textContent =
+      `${months[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
+  }
+
+  // ---------- Weather ----------
+  function wmoIcon(code) {
+    // Open-Meteo WMO weather interpretation codes
+    if (code === 0) return '☀️';                      // clear
+    if (code === 1 || code === 2) return '🌤️';        // mainly clear / partly cloudy
+    if (code === 3) return '☁️';                       // overcast
+    if (code === 45 || code === 48) return '🌫️';      // fog
+    if (code >= 51 && code <= 57) return '🌦️';        // drizzle
+    if (code >= 61 && code <= 67) return '🌧️';        // rain
+    if (code >= 71 && code <= 77) return '🌨️';        // snow
+    if (code >= 80 && code <= 82) return '🌧️';        // rain showers
+    if (code >= 85 && code <= 86) return '🌨️';        // snow showers
+    if (code >= 95) return '⛈️';                       // thunderstorm
+    return '🌡️';
+  }
+
+  function fetchWeather(lat, lon) {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code`;
+    fetch(url)
+      .then(r => r.json())
+      .then(data => {
+        if (!data.current) return;
+        const t = Math.round(data.current.temperature_2m);
+        const code = data.current.weather_code;
+        const w = document.getElementById('weather');
+        w.querySelector('.temp').textContent = `${t}°C`;
+        w.querySelector('.icon').textContent = wmoIcon(code);
+        w.classList.remove('hidden');
+      })
+      .catch(() => {});
+  }
+
+  function initWeather() {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const { latitude, longitude } = pos.coords;
+        fetchWeather(latitude, longitude);
+        setInterval(() => fetchWeather(latitude, longitude), 30 * 60 * 1000);
+      },
+      () => { /* permission denied — hide widget (stays hidden) */ },
+      { timeout: 10000, maximumAge: 30 * 60 * 1000 }
+    );
+  }
+
+  // ---------- Settings panel UI ----------
+  function renderUrlRows() {
+    urlList.innerHTML = '';
+    const list = settings.urls.length ? settings.urls : [''];
+    list.forEach((url, i) => urlList.appendChild(makeRow(url)));
+  }
+
+  function makeRow(value) {
+    const row = document.createElement('div');
+    row.className = 'urlRow';
+    const input = document.createElement('input');
+    input.type = 'url';
+    input.placeholder = 'https://...';
+    input.value = value || '';
+    const rm = document.createElement('button');
+    rm.className = 'remove';
+    rm.textContent = '×';
+    rm.title = 'Remove';
+    rm.onclick = () => {
+      row.remove();
+      if (!urlList.children.length) urlList.appendChild(makeRow(''));
+    };
+    row.appendChild(input);
+    row.appendChild(rm);
+    return row;
+  }
+
+  function collectUrls() {
+    return Array.from(urlList.querySelectorAll('input'))
+      .map(i => i.value.trim())
+      .filter(Boolean);
+  }
+
+  function openPanel() {
+    renderUrlRows();
+    document.getElementById('speed').value = settings.speed;
+    document.getElementById('speedLabel').textContent = settings.speed;
+    panel.classList.add('open');
+  }
+  function closePanel() { panel.classList.remove('open'); }
+
+  // ---------- Events ----------
+  gear.addEventListener('click', openPanel);
+  document.getElementById('closeBtn').addEventListener('click', closePanel);
+  document.getElementById('addRowBtn').addEventListener('click', () => {
+    urlList.appendChild(makeRow(''));
+  });
+
+  document.getElementById('speed').addEventListener('input', e => {
+    document.getElementById('speedLabel').textContent = e.target.value;
+  });
+
+  document.getElementById('saveBtn').addEventListener('click', () => {
+    settings.urls = collectUrls();
+    settings.speed = parseInt(document.getElementById('speed').value, 10) || DEFAULTS.speed;
+    saveSettings();
+    const note = document.getElementById('savedNote');
+    note.classList.add('show');
+    setTimeout(() => note.classList.remove('show'), 1600);
+    buildSlides();
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closePanel();
+    else if (e.key === 'ArrowRight') manualNext();
+  });
+
+  // Hide gear after inactivity for a clean frame look
+  let hideTimer;
+  function pokeGear() {
+    gear.style.opacity = '1';
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      if (!panel.classList.contains('open')) gear.style.opacity = '0';
+    }, 4000);
+  }
+  ['mousemove', 'touchstart', 'click'].forEach(ev =>
+    document.addEventListener(ev, pokeGear, { passive: true })
+  );
+
+  // ---------- Boot ----------
+  updateClock();
+  setInterval(updateClock, 1000);
+  buildSlides();
+  initWeather();
+  pokeGear();
+</script>
+</body>
+</html>
