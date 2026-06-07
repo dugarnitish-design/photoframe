@@ -308,6 +308,14 @@
     </div>
 
     <div class="section">
+      <label class="head">Your photo proxy <span style="text-transform:none;letter-spacing:0;font-weight:400;color:rgba(255,255,255,0.35)">— recommended for albums</span></label>
+      <div class="urlRow">
+        <input type="url" id="proxyUrl" placeholder="https://your-worker.workers.dev" />
+      </div>
+      <div class="hint">For reliable Google Photos albums, paste your own free Cloudflare Worker URL here (see “How to add photos” → “Reliable album sync” below for the 5-minute setup). Leave blank to use the shared free service.</div>
+    </div>
+
+    <div class="section">
       <button id="saveBtn">Save</button>
       <div id="savedNote">Saved ✓</div>
     </div>
@@ -318,7 +326,16 @@
         <div class="htbody">
           <h4>Easiest: a Google Photos shared album</h4>
           In the Google Photos app, open (or create) an album → tap <strong>Share</strong> → <strong>Create link</strong>. Copy that link and paste it into the “Google Photos shared album” box above. The frame plays <em>every</em> photo in the album, and shows new ones you add later. The album must be shared as <em>anyone with the link</em>.<br />
-          <span style="color:rgba(255,255,255,0.45)">Note: this reads the public album page through a free helper service. It works in most cases; if it ever stops, use the direct links below as a backup.</span>
+          <span style="color:rgba(255,255,255,0.45)">Note: this reads the public album page through a shared free service that can be rate-limited or busy. For dependable albums, set up your own proxy below (5 minutes, free).</span>
+
+          <h4>Reliable album sync: your own Cloudflare Worker (free)</h4>
+          A Google Photos album page is large and must be fetched through a proxy. The shared free proxies are flaky; your own free Cloudflare Worker is rock-solid (≈1 request/hour, far under the free 100k/day).
+          <ol style="margin:6px 0 0 18px; padding:0;">
+            <li>Create a free account at <a href="https://dash.cloudflare.com/sign-up" target="_blank" rel="noopener">cloudflare.com</a>.</li>
+            <li>In the dashboard: <strong>Workers &amp; Pages → Create → Create Worker</strong>. Give it a name, click <strong>Deploy</strong>, then <strong>Edit code</strong>.</li>
+            <li>Replace all the code with the proxy snippet (provided with this frame), then <strong>Deploy</strong>.</li>
+            <li>Copy your Worker URL (looks like <code>https://NAME.SUBDOMAIN.workers.dev</code>) and paste it into the <strong>“Your photo proxy”</strong> box above. Save.</li>
+          </ol>
 
           <h4>Most reliable: imgbb.com (any single photo)</h4>
           Go to <a href="https://imgbb.com" target="_blank" rel="noopener">imgbb.com</a>, upload your photo, then copy the <em>“Direct link”</em> into an “Individual photo links” row. Works for photos from anywhere — Facebook, Instagram, or your phone.
@@ -353,6 +370,7 @@
   const DEFAULTS = {
     urls: [],
     album: '',
+    proxy: '',   // optional: your own Cloudflare Worker proxy URL (most reliable)
     speed: 10
   };
 
@@ -385,6 +403,7 @@
       return {
         urls: Array.isArray(parsed.urls) ? parsed.urls : [],
         album: typeof parsed.album === 'string' ? parsed.album : '',
+        proxy: typeof parsed.proxy === 'string' ? parsed.proxy : '',
         speed: parsed.speed || DEFAULTS.speed
       };
     } catch (e) {
@@ -413,6 +432,22 @@
   const PROXY_CORSPROXY = u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`;
   const PROXY_ALLORIGINS = u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`;
 
+  // Your own proxy (e.g. a Cloudflare Worker), if set in settings. No shared rate
+  // limit and no size cap, so it's the most reliable — always tried first.
+  function PROXY_CUSTOM(u) {
+    const base = settings.proxy.trim();
+    const sep = base.includes('?') ? '&' : (base.endsWith('/') ? '?' : '/?');
+    return base + sep + 'url=' + encodeURIComponent(u);
+  }
+
+  // Ordered proxy list for a fetch. The user's own proxy (if any) goes first.
+  function proxiesFor(kind) {
+    const list = settings.proxy.trim() ? [PROXY_CUSTOM] : [];
+    return kind === 'large'
+      ? list.concat([PROXY_CORSFIX, PROXY_CORSPROXY, PROXY_ALLORIGINS])
+      : list.concat([PROXY_CORSPROXY, PROXY_CORSFIX, PROXY_ALLORIGINS]);
+  }
+
   // Try each proxy in turn. `validate` rejects responses that came back OK but
   // aren't the page we wanted (e.g. a proxy's own rate-limit/error page), so a
   // bad response is treated as a miss and the next proxy/attempt is tried.
@@ -437,7 +472,7 @@
   async function resolveAlbumUrl(link) {
     if (/photos\.google\.com\/share\//.test(link)) return link; // already long form
     if (!/goo\.gl/.test(link)) return link;                     // unknown host, try as-is
-    const html = await proxyGet(link.split('?')[0] + '?d=1', [PROXY_CORSPROXY, PROXY_CORSFIX], 9000,
+    const html = await proxyGet(link.split('?')[0] + '?d=1', proxiesFor('small'), 9000,
       t => /photos\.google\.com/.test(t.replace(/\\/g, '')));
     if (!html) return null;
     const m = html.match(/https:\\?\/\\?\/photos\.google\.com\\?\/share[^"'<>\\ ]+/);
@@ -465,7 +500,7 @@
     let html = null;
     for (let attempt = 0; attempt < 3 && html === null; attempt++) {
       if (attempt) await new Promise(r => setTimeout(r, 3000));
-      html = await proxyGet(real, [PROXY_CORSFIX, PROXY_CORSPROXY, PROXY_ALLORIGINS], 15000, looksLikeAlbum);
+      html = await proxyGet(real, proxiesFor('large'), 15000, looksLikeAlbum);
     }
     if (html === null) return { urls: [], reached: false };
     return { urls: extractPhotos(html), reached: true };
@@ -703,6 +738,7 @@
   function openPanel() {
     renderUrlRows();
     document.getElementById('albumUrl').value = settings.album;
+    document.getElementById('proxyUrl').value = settings.proxy;
     if (lastAlbumNote) {
       const el = document.getElementById('albumStatus');
       el.textContent = lastAlbumNote;
@@ -727,6 +763,7 @@
   document.getElementById('saveBtn').addEventListener('click', () => {
     settings.urls = collectUrls();
     settings.album = document.getElementById('albumUrl').value.trim();
+    settings.proxy = document.getElementById('proxyUrl').value.trim();
     settings.speed = parseInt(document.getElementById('speed').value, 10) || DEFAULTS.speed;
     saveSettings();
     const note = document.getElementById('savedNote');
