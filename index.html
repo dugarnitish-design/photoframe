@@ -475,9 +475,12 @@
     const html = await proxyGet(link.split('?')[0] + '?d=1', proxiesFor('small'), 9000,
       t => /photos\.google\.com/.test(t.replace(/\\/g, '')));
     if (!html) return null;
-    const m = html.match(/https:\\?\/\\?\/photos\.google\.com\\?\/share[^"'<>\\ ]+/);
+    // Extract the album token and its access key separately, then rebuild a clean
+    // URL. (In the page the "=" of "?key=" is escaped as = and slashes may be
+    // escaped as \/, so a naive match would truncate the key — which 404s.)
+    const m = html.match(/photos\.google\.com\\?\/share\\?\/([A-Za-z0-9_-]+)(?:[?&]key(?:\\u003d|=|%3D)([A-Za-z0-9_-]+))?/i);
     if (!m) return null;
-    return m[0].replace(/\\\//g, '/').replace(/\\u003d/gi, '=').replace(/\\u0026/gi, '&');
+    return 'https://photos.google.com/share/' + m[1] + (m[2] ? '?key=' + m[2] : '');
   }
 
   // Pull photo URLs out of a shared-album page's HTML.
