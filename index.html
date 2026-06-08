@@ -365,6 +365,40 @@
   const FAMILY_NAME = "Our Family";
   // ====================================================================
 
+  // Built-in photos: shown automatically when no album / photo links are set
+  // in Settings. (Pulled from the family Google Photos album.) To change the
+  // photos later, add your own in Settings, or replace this list.
+  const DEFAULT_PHOTOS = [
+    "https://lh3.googleusercontent.com/pw/AP1GczNzmUzzV4GLb_Y2LlrN5Zbeo36Dsw9WacRZGLsR0q3I0XVGJXBgj3b8regM6n1p4kJOTAlQD6SEz3j5q9exjikNQu7q2uKNmDh7EZDf35VivbV_RQ=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczOzpLVSeeUZKQ4qOMDSFmgI2Ywgj6bHZAectr3-wV2owkKujDn2LPfqYppeUtBCYRC5ISewVsXNXNOoswtSt4yQIdUS22XPkkzyUvFSoBGjISfyLQ=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczMz2DYTPcZ6vy-Or1heP4ooqlgDQKOcn3_R_9fc2iWq-l90gkwMBapHcV1HvH_JDWUb2np1us8hWi4uMS2I6fOg9puwoVIHlVNjNoMlRyf2S93z7A=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczMMSo_8iqHUfKWRDcBHGSljJ7S6IiFmn2EGnzyNcuptJPVd-XK6O7i6EftVGA2Z-tGUjFbbYAr07Buk_-ve0Cm-GBvJUl-NgtY8xucDjY-EWyenUA=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczPyJkAdwRQwBpJoCuy5ixBLgsUtdZXa43oTx_Ioa94iq0hoKP8hJBMQZN472AFkBYazj6XdVI66I4l_O4Ur51ITcCt5RWvPC3eAEPLVx0nbCg2-iw=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczOFGhI3tKdA9HracsruhSLljdWkJCXD1ZTWk7aa25e1eU-tjxyyXJnqhMt2TjJNUK8co9Hu_y6y4LiMh3fCye_mm2HPK5Fao0iaffSgLTkg73UljQ=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczPQ104QDhxb0_Jy8_hedbEDmD_S8v6vt_skf2CKCvFr0I6E4FNunNPMNnoT0iqkekyTJ-eGHM3HxxF9jHakxhBiwqzlO9I9HqiQAHZvdI3_tb6_Zg=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczOxaNHqlwAV_C3TeNOLDkry-s4HwCmjmU-cQCdfq35CnXLyQPW1OY1YthSGhv8cWk_Szy-ZobPpUGwD0AaCweTZ9StRSliep3xz3NgcWldS9yuLTw=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczMQD7h0yG_HgjY8nSEFDGruI9TErFHEU6sqBw-VhqRiq-z7HXz2L5uhugaV2uCE65h-_W01NlQIy47JUz2cbs7jfk1Hz526TzSPM4Loq4EU8uK2pg=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczMEvaZW8GlmqYePlmVmMag6AyF2zSA7uNylfMySRXWrx9RKX6sd3PK7RD9U3cT4tBNqg3bqMhxkhBo3XkynIL7zE3NePc5PHpkee7S6apZXQdrC1A=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczOHLey70xRVIQDPYo2vYoFwGqhbpC2g8RNe2JP5gB8ED9h1svVv_aSqdOkvvJp0KlModn4nLyfjF2ueZ3N7ktXN845axFsyyYMJ7J-nFXgiDe2kHw=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczNWg_Xw4_nIOUJxfminfnaYw3Qlln1kL-QQYP2_PODHi3gAA3h5zNhuiUOk_hkyIcvKLmybxxH40uLcbIAFeYd7iAhxMrBwyUKm_c05maAJ6uynFA=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczPtNCDUYiFGNI86luB2om2w6f4igmpMpx2Sy4NjFhHdRQzhUaCbNPeXkuiwycW278FnUG2KNiTq6Po6Kc50oY1ST3qkjLMFESN22ebLWVtLIJBTuA=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczNifB8ZbxnO3GLV4M1gJr-JTuGKg5tnSA0cY1Pm3QQOHxkHP6_m3uXh3BrMyn0RmWWpt6joHKGNrHcL13Mx3wHmJT14FcD32cnJbPVVsvFUWDp6Aw=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczNTbj8L8eIQ4HIfv2ZU3Kic2aCRWeHWldgmxefpZdUsnALO3jln4agHJRZE7yEVvW0TxWbnA6XxdPQnD0siHj5BbYKK821FQWpzCb--YRI1sQznfA=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczPFpeO6lo-uXTdta_hSe6IXnbRsft0EOqGm369zTkeyb59wGvuTFbcJ6e4prtI73fO040nHz1UFYfdzTK-FfPyLk-f8q5J1xPja2OhN7elvufFXWA=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczNQ3w-8qbsT0dhU8DSqTc9gBWtqPIif14njpBbThmhxjPfdQlD5tgk8xArqKr4DWp8ZIy4Qamzkz5AhKsyBFxuqGCEDKPltZZMW_jCFsaBdIlubSg=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczNeOLpvetdqqAccWQdVgg8ouxFvxBqsvCTr2durA3KcBziABC0zdDhhHotSxlMjL3_a7iFx8iRh9tu9AGqr0ywMm5kEqz1gKLrLaCpXeM7Hv6dGqQ=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczM3z4sDoM-vbwnmX9eo0lur--HuPzORGiHCzkYg_q0kGaEHb_UbJLADe8PWHkHfNUX283f7adBP17nEGvRHKKEViBnoRI4pgO5S6vs3zfP-JdlAcA=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczORloVBtP381zv7z95tAq6vW6agslwPyD0JW8SSx4Rfo6P4jnEBmoWMCKt2LECwWrl_BbyZyy_q1y3-IzUrrc3VVV-t55R7JRykSZlREGWQvNMtYg=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczN0LIxTOuG15qwS9n18R2Q7vk9zN4dGpqpwMYlvlfxdAmEundSJU2HHIk1Yeehpk0u5qTzKV5G0R_vNMJee26sEkLsb3KcfmOzAhc_KgiDcRU2IIw=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczPfmTaJ0U8VcMKFxWIj2fB2HbFgXYENzKbKegPa9632Kx0L1cngnUxMUBNtvs-p--KLtgSG1XS1kD4fo_SAQjIAVjFKNyQsLv997L1f7-o7lby8rw=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczOmUsYqVDJZUAqArfxDjDeoaiuUM7urQXUWhZr895MRelUETtPG6fUSL7I3U4-EhoSvzaDmCkyLNezR3Kc43sLumCmJM4TGzeEvMbe6b1jU73-KYA=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczNjagLCmQOXEf_k5BWc3dvClwPCDEmfIxjhIWu2G2-eDOj2HSjjhsp_tKzOsmo3do9-MIWbKQFZSv7AKqoneuPORsRNmcQ0q-zVExm7Z-yj23Fc1w=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczPTGtPsYnyaoHtQQlmT8PNWlHIkvQ8iaTyUz1JZNUfzXo595Q26KkAu093XReA3hoNbzaoa0i4oPK1L89TptTiyihrT-EEOhZTBfZy1g5pAnRmNuA=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczMaVAwDS3kU8fXliOdYytRDmyqW9noZqxoBq_fYKU0vGSbA5s6NOIIGFahVVHu33_SWojQfmt5SQYI1cD98BDNDwf1iLlzvoNdBSW0Bx7JictLCow=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczM-DCsgsRvXlihkgISX64jglpjRXPYLGoqK_Edy7mTc2YlkrtgJ_pA0o79TMNhB6qww1FsdL4nuQtS9cMFWJrxox7EX0GZrGze0-XUf08JDHyyNSg=w1920",
+    "https://lh3.googleusercontent.com/pw/AP1GczO7fT0-ixbrA92Tl3iYaEOATqctNnfb_f-XLWIvjSJBskYalJS0kcDk79tzxETvbFKBeMmLAIq5dr_Vhq81FyAlc1NKr1NviQyIcvN2beiZYcrIzA=w1920"
+  ];
+
   const STORE_KEY = 'photoframe.settings.v1';
 
   const DEFAULTS = {
@@ -527,6 +561,10 @@
   // Build the full ordered, de-duplicated photo list from all sources.
   async function gatherPhotos() {
     const direct = settings.urls.map(u => u.trim()).filter(Boolean);
+    // Nothing configured by the user → show the built-in default photos.
+    if (!direct.length && !settings.album.trim() && DEFAULT_PHOTOS.length) {
+      return DEFAULT_PHOTOS.slice();
+    }
     let album = [];
     if (settings.album.trim()) {
       const { urls, reached } = await fetchAlbumPhotos(settings.album.trim());
