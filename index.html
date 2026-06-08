@@ -719,6 +719,16 @@
     input.type = 'url';
     input.placeholder = 'https://...';
     input.value = value || '';
+    // Bulk paste: dropping many links (newline/space/comma separated) into one
+    // box auto-fills a row for each link instead of cramming them together.
+    input.addEventListener('paste', e => {
+      const text = (e.clipboardData || window.clipboardData).getData('text');
+      const parts = text.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+      if (parts.length <= 1) return; // single link → normal paste
+      e.preventDefault();
+      input.value = parts[0];
+      parts.slice(1).forEach(p => urlList.appendChild(makeRow(p)));
+    });
     const rm = document.createElement('button');
     rm.className = 'remove';
     rm.textContent = '×';
