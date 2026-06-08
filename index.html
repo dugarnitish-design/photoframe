@@ -585,7 +585,11 @@
         setAlbumNote(`Loaded ${urls.length} photo${urls.length === 1 ? '' : 's'} from the album. ✓`, 'ok');
       }
     }
-    return [...new Set([...direct, ...album])];
+    const combined = [...new Set([...direct, ...album])];
+    // Safety net: if nothing else produced photos (e.g. a saved album link that
+    // can't be reached), fall back to the built-in photos so the frame is never blank.
+    if (combined.length === 0 && DEFAULT_PHOTOS.length) return DEFAULT_PHOTOS.slice();
+    return combined;
   }
 
   // ---------- Slideshow ----------
