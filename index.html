@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <title>Photo Frame</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -558,67 +561,18 @@
     el.className = 'hint' + (cls ? ' ' + cls : '');
   }
 
-  // Build the full ordered, de-duplicated photo list from all sources.
-  async function gatherPhotos() {
-    const direct = settings.urls.map(u => u.trim()).filter(Boolean);
-    // Nothing configured by the user → show the built-in default photos.
-    if (!direct.length && !settings.album.trim() && DEFAULT_PHOTOS.length) {
-      return DEFAULT_PHOTOS.slice();
-    }
-    let album = [];
-    if (settings.album.trim()) {
-      const { urls, reached } = await fetchAlbumPhotos(settings.album.trim());
-      if (!reached) {
-        setAlbumNote('Couldn’t reach the album (the photo service may be busy). It retries automatically.', 'err');
-        if (!direct.length) {
-          setMessage('Couldn’t reach the album',
-            'The helper service may be busy — it retries on its own. Or add individual photo links below as a backup.');
-        }
-      } else if (urls.length === 0) {
-        setAlbumNote('Reached the album, but found no photos. Make sure the link is a shared album (not a single photo) set to “anyone with the link”.', 'err');
-        if (!direct.length) {
-          setMessage('No photos found in that album',
-            'Make sure it’s a Google Photos shared-album link set to “anyone with the link” — not a single photo or a private album.');
-        }
-      } else {
-        album = urls;
-        setAlbumNote(`Loaded ${urls.length} photo${urls.length === 1 ? '' : 's'} from the album. ✓`, 'ok');
-      }
-    }
-    const combined = [...new Set([...direct, ...album])];
-    // Safety net: if nothing else produced photos (e.g. a saved album link that
-    // can't be reached), fall back to the built-in photos so the frame is never blank.
-    if (combined.length === 0 && DEFAULT_PHOTOS.length) return DEFAULT_PHOTOS.slice();
-    return combined;
-  }
 
   // ---------- Slideshow ----------
-  async function buildSlides() {
+  // Render a list of photo URLs as slides. Skips work if the list is unchanged
+  // so a background album refresh doesn't disturb the current slide.
+  function renderPhotos(list) {
+    if (!list || list.length === 0) return;
+    if (list.join('|') === photos.join('|') && slideEls.length) return; // unchanged
     clearInterval(slideTimer);
-    clearInterval(albumRefreshTimer);
-
-    if (settings.album.trim() && photos.length === 0) {
-      setMessage('Loading photos…', 'Fetching your Google Photos album.');
-    }
-
-    const list = await gatherPhotos();
-
     stage.innerHTML = '';
     slideEls = [];
     photos = list;
-
-    if (photos.length === 0) {
-      if (!settings.album.trim()) {
-        setMessage('No photos yet', 'Tap the gear icon in the top-right corner to add a Google Photos album or photo links.');
-      } else {
-        // Album set but nothing loaded (proxy busy) — retry soon rather than waiting the full refresh.
-        albumRefreshTimer = setInterval(refreshAlbum, 60 * 1000);
-      }
-      dotsWrap.innerHTML = '';
-      return;
-    }
     emptyMsg.classList.remove('show');
-
     photos.forEach((url) => {
       const div = document.createElement('div');
       div.className = 'slide';
@@ -626,28 +580,57 @@
       stage.appendChild(div);
       slideEls.push(div);
     });
-
-    // Preload to avoid flashes
-    photos.forEach(url => { const im = new Image(); im.src = url; });
-
+    photos.forEach(url => { const im = new Image(); im.src = url; }); // preload
     buildDots();
     current = 0;
     show(0);
     startTimer();
+  }
 
-    // Quietly re-check the album for new photos on a timer.
-    if (settings.album.trim()) {
+  async function buildSlides() {
+    clearInterval(slideTimer);
+    clearInterval(albumRefreshTimer);
+
+    const direct = settings.urls.map(u => u.trim()).filter(Boolean);
+    const hasAlbum = !!settings.album.trim();
+
+    // 1) Show something IMMEDIATELY — never block on the network or go blank.
+    //    Priority for the instant view: your photo links, else the built-in photos.
+    const instant = direct.length ? direct : (DEFAULT_PHOTOS.length ? DEFAULT_PHOTOS.slice() : []);
+    if (instant.length) {
+      renderPhotos(instant);
+    } else if (hasAlbum) {
+      setMessage('Loading photos…', 'Fetching your Google Photos album.');
+    } else {
+      setMessage('No photos yet', 'Tap the gear icon in the top-right corner to add a Google Photos album or photo links.');
+      dotsWrap.innerHTML = '';
+    }
+
+    // 2) If an album is configured, try it in the background and upgrade to it
+    //    if it loads. Failure is silent — the instant photos keep showing.
+    if (hasAlbum) {
+      const { urls, reached } = await fetchAlbumPhotos(settings.album.trim());
+      if (urls && urls.length) {
+        renderPhotos([...new Set([...direct, ...urls])]);
+        setAlbumNote(`Loaded ${urls.length} photo${urls.length === 1 ? '' : 's'} from the album. ✓`, 'ok');
+      } else {
+        setAlbumNote(reached
+          ? 'Reached the album but found no photos — showing your saved photos. Check it’s a shared album set to “anyone with the link”.'
+          : 'Couldn’t reach the album right now — showing your saved photos. It keeps retrying.', 'err');
+        // If we had nothing to show instantly, fall back to defaults now.
+        if (!instant.length && DEFAULT_PHOTOS.length) renderPhotos(DEFAULT_PHOTOS.slice());
+      }
       albumRefreshTimer = setInterval(refreshAlbum, ALBUM_REFRESH_MS);
     }
   }
 
-  // Re-fetch the album; only rebuild if the photo set actually changed,
-  // so the current slide isn't disturbed unnecessarily.
+  // Re-fetch the album; only swap in if it actually returns photos that differ.
   async function refreshAlbum() {
-    const list = await gatherPhotos();
-    if (list.length && list.join('|') !== photos.join('|')) {
-      buildSlides();
-    }
+    if (!settings.album.trim()) return;
+    const { urls } = await fetchAlbumPhotos(settings.album.trim());
+    if (!urls || !urls.length) return;
+    const direct = settings.urls.map(u => u.trim()).filter(Boolean);
+    renderPhotos([...new Set([...direct, ...urls])]);
   }
 
   function buildDots() {
