@@ -852,7 +852,9 @@
       try { req.call(el); } catch (e) {}
     }
   }
-  fsBtn.addEventListener('click', enterFullscreen);
+  fsBtn.addEventListener('click', () => { enterFullscreen(); startKeepAlive(); });
+  // First tap anywhere also kicks off the keep-awake audio (needs a gesture).
+  document.addEventListener('click', startKeepAlive, { once: true });
 
   // ---------- Keep the screen awake ----------
   // Best-effort: ask the OS not to dim/sleep the screen while the frame is open.
@@ -865,6 +867,26 @@
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') requestWakeLock();
   });
+
+  // ---------- Keep-awake media (best-effort) ----------
+  // Some always-on displays won't switch back to their home screen while audio
+  // is "playing". We start a near-silent looping tone on the first tap (audio
+  // needs a user gesture). Harmless if the device ignores it.
+  let keepAudioCtx = null;
+  function startKeepAlive() {
+    try {
+      if (keepAudioCtx) { keepAudioCtx.resume && keepAudioCtx.resume(); return; }
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      keepAudioCtx = new AC();
+      const osc = keepAudioCtx.createOscillator();
+      const gain = keepAudioCtx.createGain();
+      gain.gain.value = 0.0015;        // barely audible
+      osc.frequency.value = 60;        // low hum
+      osc.connect(gain); gain.connect(keepAudioCtx.destination);
+      osc.start();
+    } catch (e) {}
+  }
 
   // Hide gear/fullscreen buttons after inactivity for a clean frame look
   let hideTimer;
